@@ -1,4 +1,4 @@
-// PortScaner_WEB_v0.0.2
+// WEB_check_ports_v0.0.1
 // Веб-версия сканера TCP-портов (аналог port_scanner.ps1 / port443_scanner.ps1 из проекта PortScaner).
 // CSV-результат полностью повторяет формат PowerShell-версии: Hostname,Port,Status,ScanTime
 // Сервер: Node.js + Express 4.17.3 (как в WEB_check_nodes_v0.0.4), клиент: ES5 (совместимость с IE11).
@@ -215,8 +215,8 @@ function scanHost(host, ports, timeout, callback) {
 app.get('/api/health', function (req, res) {
     res.json({
         status: 'ok',
-        app: 'PortScaner_WEB',
-        version: '0.0.2',
+        app: 'WEB_check_ports',
+        version: '0.0.1',
         node: process.version,
         platform: process.platform,
         defaultPorts: parsePorts(DEFAULT_PORTS),
@@ -533,7 +533,7 @@ app.get('/', function (req, res) {
 
 var server = app.listen(PORT, function () {
     console.log('');
-    console.log('PortScaner_WEB v0.0.2 - веб-сканер TCP-портов');
+    console.log('WEB_check_ports v0.0.1 - веб-сканер TCP-портов');
     console.log('Сервер запущен: http://localhost:' + PORT);
     console.log('Порты по умолчанию: ' + DEFAULT_PORTS + ' (80 - HTTP, 443 - HTTPS)');
     console.log('Таймаут по умолчанию: ' + DEFAULT_TIMEOUT + ' мс');

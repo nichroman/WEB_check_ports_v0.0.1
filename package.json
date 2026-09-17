@@ -1,7 +1,7 @@
 {
-  "name": "portscaner-web",
-  "version": "0.0.2",
-  "description": "PortScaner WEB - веб-сканер TCP-портов (аналог port_scanner.ps1 / port443_scanner.ps1)",
+  "name": "web-check-ports",
+  "version": "0.0.1",
+  "description": "WEB_check_ports - веб-сканер TCP-портов (аналог port_scanner.ps1 / port443_scanner.ps1)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
