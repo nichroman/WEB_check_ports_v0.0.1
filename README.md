@@ -1,4 +1,4 @@
-# WEB_check_ports v0.0.1
+# check-ports
 
 Веб-версия сканера TCP-портов. Повторяет функциональность PowerShell-скриптов
 `PortScaner\port_scanner.ps1` (порт 80) и `PortScaner\port443_scanner.ps1` (порт 443),
