@@ -1,0 +1,5 @@
+node_modules/
+scan_results*.csv
+scan443_results.csv
+Port*Opened.txt
+Port*Closed.txt
