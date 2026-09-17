@@ -527,6 +527,59 @@
             color: #7f8c8d;
         }
 
+        .manual-section {
+            margin: 20px auto 0 auto;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            max-width: 860px;
+            border-left: 4px solid #3498db;
+            text-align: left;
+        }
+
+        .manual-row {
+            margin-top: 5px;
+        }
+
+        .manual-input {
+            display: inline-block;
+            width: 55%;
+            max-width: 400px;
+            text-align: left;
+            vertical-align: middle;
+        }
+
+        .manual-btn {
+            background: #1abc9c;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 11px 24px;
+            font-size: 14px;
+            cursor: pointer;
+            vertical-align: middle;
+        }
+
+        .manual-btn:hover {
+            background: #16a085;
+        }
+
+        .manual-btn:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+
+        .manual-status {
+            display: block;
+            margin-top: 10px;
+            font-size: 13px;
+            color: #7f8c8d;
+        }
+
+        .manual-status.ok { color: #16a085; }
+        .manual-status.partial { color: #e67e22; }
+        .manual-status.error { color: #e74c3c; }
+
         @media (max-width: 700px) {
             .header-icon {
                 float: none;
@@ -564,6 +617,15 @@
             .cell-node {
                 white-space: normal;
             }
+            .manual-input {
+                display: block;
+                width: 100%;
+                max-width: none;
+                margin-bottom: 10px;
+            }
+            .manual-btn {
+                width: 100%;
+            }
         }
     </style>
 </head>
@@ -588,7 +650,8 @@
             <div class="info-box">
                 Поддерживаются форматы: <strong>TXT</strong> (один адрес в строке) и <strong>CSV</strong> (разделитель «;»: Address;Comment).<br>
                 <strong>Метод проверки:</strong> реальное TCP-подключение через Node.js (аналог функции Test-Port из PowerShell).<br>
-                Статусы результата: <strong>Open</strong> / <strong>Closed/Unreachable</strong>.
+                Статусы результата: <strong>Open</strong> / <strong>Closed/Unreachable</strong>.<br>
+                Отдельный узел можно проверить вручную: введите IP-адрес или имя хоста в блоке «Проверка отдельного узла».
             </div>
 
             <div class="dataset-section">
@@ -617,6 +680,15 @@
                     <input type="text" id="resultFileName" class="settings-input" value="scan_results.csv" />
                     <span class="settings-hint">Имя CSV в каталоге проекта</span>
                 </div>
+            </div>
+
+            <div class="manual-section">
+                <label class="dataset-label" for="manualHost">🖥 Проверка отдельного узла (IP-адрес или имя хоста):</label>
+                <div class="manual-row">
+                    <input type="text" id="manualHost" class="settings-input manual-input" placeholder="например: 10.100.58.12 или ya.ru" />
+                    <button type="button" class="manual-btn" id="manualCheckBtn">🔎 Проверить порты</button>
+                </div>
+                <span class="manual-status" id="manualStatus">Порты и таймаут берутся из настроек выше; результат добавляется в таблицу ниже</span>
             </div>
 
             <div class="file-input-wrapper">
@@ -716,6 +788,7 @@
         var activeXhr = null;
         var currentDataset = null;
         var currentIndex = 0;
+        var manualBusy = false;   // выполняется ручная проверка отдельного узла
 
         var API_BASE = '';
         if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
@@ -897,6 +970,32 @@
             return false;
         }
 
+        // Приведение адреса к виду "host": без схемы, пути и номера порта
+        // (например "http://10.0.0.5:8080/admin" -> "10.0.0.5")
+        function normalizeHost(value) {
+            var address = String(value === undefined || value === null ? '' : value);
+            address = address.replace(/^\s+|\s+$/g, '');
+            address = address.replace(/^[A-Za-z][A-Za-z0-9+.\-]*:\/\//, '').replace(/[\/\\?#].*$/, '');
+            address = address.replace(/^\s+|\s+$/g, '');
+
+            // Отбрасываем номер порта (кроме IPv6-адресов)
+            if (address.charAt(0) === '[') {
+                address = address.replace(/^\[/, '').replace(/\](:\d+)?$/, '');
+            } else {
+                var firstColon = address.indexOf(':');
+                if (firstColon !== -1 && address.indexOf(':', firstColon + 1) === -1) {
+                    address = address.substring(0, firstColon);
+                }
+            }
+            address = address.replace(/^\s+|\s+$/g, '');
+
+            if (!address || !/^[A-Za-z0-9._:\-\[\]]+$/.test(address)) {
+                return '';
+            }
+
+            return address;
+        }
+
         // Разбор TXT (один адрес в строке) и CSV (Address;Comment) / результатов (Hostname,Port,...)
         function parseNodes(content) {
             var text = String(content).replace(/^\uFEFF/, '');
@@ -918,22 +1017,9 @@
                 }
 
                 var fields = splitLine(line);
-                var address = fields[0] || '';
-                address = address.replace(/^[A-Za-z][A-Za-z0-9+.\-]*:\/\//, '').replace(/[\/\\?#].*$/, '');
-                address = address.replace(/^\s+|\s+$/g, '');
+                var address = normalizeHost(fields[0]);
 
-                // Отбрасываем номер порта (кроме IPv6-адресов со скобками/двоеточиями)
-                if (address.charAt(0) === '[') {
-                    address = address.replace(/^\[/, '').replace(/\](:\d+)?$/, '');
-                } else {
-                    var firstColon = address.indexOf(':');
-                    if (firstColon !== -1 && address.indexOf(':', firstColon + 1) === -1) {
-                        address = address.substring(0, firstColon);
-                    }
-                }
-                address = address.replace(/^\s+|\s+$/g, '');
-
-                if (!address || !/^[A-Za-z0-9._:\-\[\]]+$/.test(address)) {
+                if (!address) {
                     continue;
                 }
 
@@ -1133,7 +1219,7 @@
         }
 
         function setControlsEnabled(enabled) {
-            var ids = ['portsInput', 'timeoutInput', 'resultFileName', 'fileInput'];
+            var ids = ['portsInput', 'timeoutInput', 'resultFileName', 'fileInput', 'manualHost', 'manualCheckBtn'];
             var i;
 
             for (i = 0; i < ids.length; i++) {
@@ -1167,7 +1253,8 @@
                 comment: node.comment,
                 ports: portResults,
                 openCount: 0,
-                closedCount: portResults.length
+                closedCount: portResults.length,
+                scanTime: scanStartedAt
             });
         }
 
@@ -1247,7 +1334,8 @@
                             ports: data.ports,
                             openCount: data.openCount,
                             closedCount: data.closedCount,
-                            duration: data.duration
+                            duration: data.duration,
+                            scanTime: scanStartedAt
                         });
                     }
 
@@ -1419,7 +1507,7 @@
 
                 var tdTime = document.createElement('td');
                 tdTime.className = 'cell-time';
-                tdTime.textContent = scanStartedAt;
+                tdTime.textContent = result.scanTime || scanStartedAt;
 
                 var tdPorts = document.createElement('td');
                 for (j = 0; j < result.ports.length; j++) {
@@ -1478,11 +1566,30 @@
             for (i = 0; i < results.length; i++) {
                 for (j = 0; j < results[i].ports.length; j++) {
                     lines.push('"' + results[i].host + '",' + results[i].ports[j].port + ',"' +
-                               results[i].ports[j].status + '","' + scanStartedAt + '"');
+                               results[i].ports[j].status + '","' +
+                               (results[i].scanTime || scanStartedAt) + '"');
                 }
             }
 
             return lines.join('\r\n') + '\r\n';
+        }
+
+        // Порты, фактически присутствующие в результатах (для имён экспортируемых файлов)
+        function portsFromResults() {
+            var ports = [];
+            var i, j;
+
+            for (i = 0; i < results.length; i++) {
+                for (j = 0; j < results[i].ports.length; j++) {
+                    if (ports.indexOf(results[i].ports[j].port) === -1) {
+                        ports.push(results[i].ports[j].port);
+                    }
+                }
+            }
+
+            ports.sort(function (a, b) { return a - b; });
+
+            return ports.length > 0 ? ports : scanPorts;
         }
 
         // TXT-список адресов (аналоги файлов Port80Opened.txt / Port80Closed.txt)
@@ -1525,7 +1632,7 @@
                 alert('Нет результатов для экспорта');
                 return;
             }
-            downloadText(buildCsv(), defaultCsvFileName(scanPorts), 'text/csv');
+            downloadText(buildCsv(), defaultCsvFileName(portsFromResults()), 'text/csv');
         }
 
         function exportHostList(onlyOpen) {
@@ -1534,7 +1641,7 @@
                 return;
             }
 
-            var tag = scanPorts.join('-');
+            var tag = portsFromResults().join('-');
             var content = buildHostList(onlyOpen);
             if (content === '') {
                 alert(onlyOpen ? 'Нет узлов с открытыми портами' : 'Нет узлов без открытых портов');
@@ -1580,7 +1687,173 @@
             });
         }
 
+        // ==================== Проверка отдельного узла ====================
+
+        function setManualStatus(state, text) {
+            var statusEl = document.getElementById('manualStatus');
+            statusEl.className = 'manual-status' + (state ? ' ' + state : '');
+            statusEl.textContent = text;
+        }
+
+        // Проверка одного введённого вручную узла (IP-адрес или имя хоста)
+        function manualCheck() {
+            if (manualBusy) {
+                return;
+            }
+            if (scanning) {
+                alert('Сканирование списка уже выполняется. Дождитесь окончания или нажмите «Остановить».');
+                return;
+            }
+            if (!serverOnline) {
+                alert('Сервер недоступен! Запустите команду: npm start');
+                return;
+            }
+
+            var input = document.getElementById('manualHost');
+            var host = normalizeHost(input.value);
+
+            if (!host) {
+                setManualStatus('error', '❌ Укажите корректный IP-адрес или имя хоста (пример: 10.100.58.12 или ya.ru)');
+                input.focus();
+                return;
+            }
+
+            var ports = parsePorts(document.getElementById('portsInput').value);
+            if (ports.length === 0) {
+                setManualStatus('error', '❌ Не заданы корректные порты (пример: 80,443 или 1-1024)');
+                return;
+            }
+
+            var timeout = timeoutValue();
+            var button = document.getElementById('manualCheckBtn');
+
+            manualBusy = true;
+            button.disabled = true;
+            setManualStatus('', '🔄 Проверяю ' + host + ' (' + ports.join(', ') + '), таймаут ' + timeout + ' мс...');
+
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', API_BASE + '/api/scan?host=' + encodeURIComponent(host) +
+                     '&ports=' + encodeURIComponent(ports.join(',')) +
+                     '&timeout=' + timeout, true);
+
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState !== 4) {
+                    return;
+                }
+                manualBusy = false;
+                button.disabled = false;
+
+                if (xhr.status === 200) {
+                    var data = null;
+                    try {
+                        data = JSON.parse(xhr.responseText);
+                    } catch (e) {
+                        data = null;
+                    }
+                    if (data) {
+                        addManualResult(data, ports.length, timeout);
+                    } else {
+                        setManualStatus('error', '❌ Ошибка разбора ответа сервера');
+                    }
+                } else {
+                    var message = 'HTTP ' + xhr.status;
+                    try {
+                        var parsed = JSON.parse(xhr.responseText);
+                        if (parsed && parsed.error) {
+                            message = parsed.error;
+                        }
+                    } catch (e2) {
+                        // ответ не в формате JSON
+                    }
+                    setManualStatus('error', '❌ Ошибка проверки: ' + message);
+                }
+            };
+
+            xhr.onerror = function () {
+                manualBusy = false;
+                button.disabled = false;
+                setManualStatus('error', '❌ Сеть недоступна: сервер не отвечает');
+            };
+
+            xhr.send();
+        }
+
+        // Добавление результата ручной проверки в таблицу (повторная проверка узла обновляет строку)
+        function addManualResult(data, portCount, timeout) {
+            var checkedAt = data.scanTime || formatDateTime(new Date());
+            var index = -1;
+            var i;
+
+            for (i = 0; i < results.length; i++) {
+                if (String(results[i].host).toLowerCase() === String(data.host).toLowerCase()) {
+                    index = i;
+                    break;
+                }
+            }
+
+            var row = {
+                host: data.host,
+                comment: (index === -1) ? 'Ручная проверка' : (results[index].comment || 'Ручная проверка'),
+                ports: data.ports,
+                openCount: data.openCount,
+                closedCount: data.closedCount,
+                duration: data.duration,
+                scanTime: checkedAt
+            };
+
+            if (index === -1) {
+                results.push(row);
+            } else {
+                results[index] = row;
+            }
+
+            if (scanStartedAt === '') {
+                scanStartedAt = checkedAt;
+            }
+            scanTimeout = timeout;
+
+            displayResults();
+
+            var openPorts = [];
+            var closedPorts = [];
+            for (i = 0; i < data.ports.length; i++) {
+                if (data.ports[i].status === 'Open') {
+                    openPorts.push(data.ports[i].port);
+                } else {
+                    closedPorts.push(data.ports[i].port);
+                }
+            }
+
+            var state = (openPorts.length === 0) ? 'error' : (closedPorts.length === 0 ? 'ok' : 'partial');
+            var mark = (state === 'ok') ? '✅ ' : (state === 'partial' ? '⚠ ' : '❌ ');
+            var text = data.host + ': открыты порты ' + (openPorts.length > 0 ? openPorts.join(', ') : 'нет');
+
+            if (closedPorts.length > 0) {
+                text += '; закрыты/недоступны: ' + closedPorts.join(', ');
+            }
+            if (typeof data.duration === 'number') {
+                text += ' · ' + data.duration + ' мс';
+            }
+
+            setManualStatus(state, mark + text);
+
+            document.getElementById('scanSummary').textContent =
+                'Ручная проверка: ' + data.host + ' (' + checkedAt + ')' +
+                ' | Узлов в таблице: ' + results.length +
+                ' | Портов в проверке: ' + portCount;
+        }
+
         // ==================== Инициализация ====================
+
+        document.getElementById('manualCheckBtn').onclick = manualCheck;
+        document.getElementById('manualHost').onkeydown = function (event) {
+            event = event || window.event;
+            if (event.keyCode === 13) {
+                manualCheck();
+                return false;
+            }
+            return true;
+        };
 
         document.getElementById('stopBtn').onclick = stopScan;
         document.getElementById('exportCsvBtn').onclick = exportCsv;
